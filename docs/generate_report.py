@@ -45,7 +45,7 @@ story.append(Spacer(1, 2 * cm))
 story.append(Paragraph("Course: Computer Vision (CSE3010)", styles["CoverSub"]))
 story.append(Paragraph("Submitted as part of: VITyarthi - Build Your Own Project", styles["CoverSub"]))
 story.append(Spacer(1, 1 * cm))
-story.append(Paragraph("Harshit Agarwal (KAIZER)", styles["CoverSub"]))
+story.append(Paragraph("Arjun Tiwari", styles["CoverSub"]))
 story.append(Paragraph("B.Tech CSE (AI/ML), VIT Bhopal University", styles["CoverSub"]))
 story.append(PageBreak())
 
