@@ -1,0 +1,29 @@
+digraph architecture {
+	graph [fontsize=12 rankdir=LR splines=ortho]
+	node [fontname=Helvetica fontsize=11 shape=box style="rounded,filled"]
+	input [label="Stereo Image
+Pair (L/R)" fillcolor="#E6F1FB"]
+	subgraph cluster_pipeline {
+		fontsize=12 label="Stereo Vision Depth Estimation Pipeline" style=rounded
+		calib [label="Module 1
+Calibration &
+Projection Model" fillcolor="#EAF3DE"]
+		epi [label="Module 2
+Feature Matching +
+RANSAC Epipolar Geometry" fillcolor="#FAEEDA"]
+		depthm [label="Module 3
+Disparity & Depth
+Estimation (SGBM)" fillcolor="#FBEAF0"]
+		calib -> epi
+		epi -> depthm
+	}
+	eval [label="Evaluation &
+Quality Metrics" fillcolor="#F1EFE8" shape=box]
+	output [label="Depth Map +
+Visual Outputs +
+summary_metrics.json" fillcolor="#E1F5EE"]
+	input -> calib
+	depthm -> eval
+	depthm -> output
+	eval -> output
+}

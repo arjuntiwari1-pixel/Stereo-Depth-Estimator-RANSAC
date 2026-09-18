@@ -1,300 +1,1158 @@
 """
 generate_report.py
---------------------
-Builds the full project report PDF (docs/Project_Report.pdf) required by
-section 6 of the VITyarthi "Build Your Own Project" specification.
+------------------
+Generates the submitted Stereo Vision Depth Estimator project report.
+
+The report is based on the final submitted report structure and content.
+It does not modify the computer-vision pipeline.
 """
 
-import json
 import os
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.units import cm
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.enums import TA_CENTER
-from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, Image, PageBreak, Table, TableStyle,
-    ListFlowable, ListItem
-)
+import json
+import math
+
+import matplotlib.pyplot as plt
+
 from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import cm
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Paragraph,
+    Spacer,
+    Image,
+    PageBreak,
+    Table,
+    TableStyle,
+    ListFlowable,
+    ListItem,
+)
+
+
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 DIAG = os.path.join(ROOT, "docs", "diagrams")
 OUT = os.path.join(ROOT, "outputs")
-REPORT_PATH = os.path.join(ROOT, "docs", "Project_Report.pdf")
+REPORT_PATH = os.path.join(
+    ROOT,
+    "docs",
+    "Stereo_Vision_Depth_Estimator_Report_Arjun_Tiwari.pdf",
+)
+
+os.makedirs(DIAG, exist_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# Styles
+# ---------------------------------------------------------------------------
 
 styles = getSampleStyleSheet()
-styles.add(ParagraphStyle(name="CoverTitle", fontSize=24, leading=30, alignment=TA_CENTER, spaceAfter=12))
-styles.add(ParagraphStyle(name="CoverSub", fontSize=13, leading=18, alignment=TA_CENTER, textColor=colors.HexColor("#444441")))
-styles.add(ParagraphStyle(name="H1", parent=styles["Heading1"], fontSize=16, spaceBefore=18, spaceAfter=8))
-styles.add(ParagraphStyle(name="H2", parent=styles["Heading2"], fontSize=13, spaceBefore=12, spaceAfter=6))
-styles.add(ParagraphStyle(name="Body", parent=styles["Normal"], fontSize=10.5, leading=15))
-styles.add(ParagraphStyle(name="Caption", parent=styles["Normal"], fontSize=9, textColor=colors.HexColor("#5F5E5A"), alignment=TA_CENTER, spaceAfter=10))
 
-with open(os.path.join(OUT, "summary_metrics.json")) as f:
-    metrics = json.load(f)
+styles.add(
+    ParagraphStyle(
+        name="CoverTitle",
+        fontSize=24,
+        leading=30,
+        alignment=TA_CENTER,
+        spaceAfter=12,
+    )
+)
+
+styles.add(
+    ParagraphStyle(
+        name="CoverSub",
+        fontSize=12,
+        leading=18,
+        alignment=TA_CENTER,
+    )
+)
+
+styles.add(
+    ParagraphStyle(
+        name="H1Report",
+        parent=styles["Heading1"],
+        fontSize=16,
+        leading=20,
+        spaceBefore=10,
+        spaceAfter=8,
+    )
+)
+
+styles.add(
+    ParagraphStyle(
+        name="H2Report",
+        parent=styles["Heading2"],
+        fontSize=12,
+        leading=15,
+        spaceBefore=8,
+        spaceAfter=5,
+    )
+)
+
+styles.add(
+    ParagraphStyle(
+        name="BodyReport",
+        parent=styles["BodyText"],
+        fontSize=9.5,
+        leading=13,
+        spaceAfter=6,
+    )
+)
+
+styles.add(
+    ParagraphStyle(
+        name="SmallReport",
+        parent=styles["BodyText"],
+        fontSize=8.5,
+        leading=11,
+        spaceAfter=4,
+    )
+)
+
+styles.add(
+    ParagraphStyle(
+        name="CaptionReport",
+        parent=styles["BodyText"],
+        fontSize=8.5,
+        leading=10,
+        alignment=TA_CENTER,
+        spaceAfter=7,
+    )
+)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 story = []
 
-# ---------------------------------------------------------------------------
-# Cover Page
-# ---------------------------------------------------------------------------
-story.append(Spacer(1, 5 * cm))
-story.append(Paragraph("Stereo Vision Depth Estimator", styles["CoverTitle"]))
-story.append(Paragraph("A RANSAC-based Epipolar Geometry Pipeline for Dense Depth Estimation", styles["CoverSub"]))
-story.append(Spacer(1, 2 * cm))
-story.append(Paragraph("Course: Computer Vision (CSE3010)", styles["CoverSub"]))
-story.append(Paragraph("Submitted as part of: VITyarthi - Build Your Own Project", styles["CoverSub"]))
-story.append(Spacer(1, 1 * cm))
-story.append(Paragraph("Arjun Tiwari", styles["CoverSub"]))
-story.append(Paragraph("B.Tech CSE (AI/ML), VIT Bhopal University", styles["CoverSub"]))
-story.append(PageBreak())
+
+def p(text, style="BodyReport"):
+    story.append(Paragraph(text, styles[style]))
 
 
-def bullets(items):
+def bullet_list(items):
     return ListFlowable(
-        [ListItem(Paragraph(i, styles["Body"]), leftIndent=12) for i in items],
-        bulletType="bullet", start="circle"
+        [
+            ListItem(
+                Paragraph(item, styles["BodyReport"]),
+                leftIndent=12,
+            )
+            for item in items
+        ],
+        bulletType="bullet",
+        start="circle",
     )
 
 
-def add_image(path, width=15 * cm, caption=None):
-    if os.path.exists(path):
-        img = Image(path, width=width, height=width * 0.62)
-        story.append(img)
-        if caption:
-            story.append(Paragraph(caption, styles["Caption"]))
-    else:
-        story.append(Paragraph(f"[Missing image: {path}]", styles["Body"]))
+def add_image(path, width=15 * cm, caption=None, height=None):
+    """
+    Add an image while preserving a reasonable aspect ratio.
+    """
+    if not os.path.exists(path):
+        story.append(
+            Paragraph(
+                f"[Missing image: {os.path.basename(path)}]",
+                styles["SmallReport"],
+            )
+        )
+        return
+
+    if height is None:
+        height = width * 0.62
+
+    img = Image(path, width=width, height=height)
+    story.append(img)
+
+    if caption:
+        story.append(
+            Paragraph(
+                caption,
+                styles["CaptionReport"],
+            )
+        )
 
 
+def image_path(filename):
+    return os.path.join(DIAG, filename)
+
+
+def output_path(filename):
+    return os.path.join(OUT, filename)
+
+
+# ---------------------------------------------------------------------------
+# Generate the additional conceptual diagrams used by the submitted report
+# ---------------------------------------------------------------------------
+
+def generate_stereo_geometry():
+    path = image_path("06_stereo_geometry.png")
+
+    fig, ax = plt.subplots(figsize=(10, 4.2))
+
+    ax.set_xlim(0, 10)
+    ax.set_ylim(0, 5)
+    ax.axis("off")
+
+    # Cameras
+    ax.plot([1.0, 1.0], [0.8, 4.2], linewidth=3)
+    ax.plot([9.0, 9.0], [0.8, 4.2], linewidth=3)
+
+    ax.text(1.0, 0.35, "Left camera", ha="center", fontsize=10)
+    ax.text(9.0, 0.35, "Right camera", ha="center", fontsize=10)
+
+    # 3D point
+    px, py = 5.0, 3.7
+    ax.scatter(px, py, s=60)
+    ax.text(px, py + 0.3, "3D point P", ha="center", fontsize=10)
+
+    # Projection points
+    ax.scatter(2.4, 2.5, s=35)
+    ax.scatter(7.6, 2.5, s=35)
+
+    ax.text(2.4, 2.15, "x₁", ha="center", fontsize=10)
+    ax.text(7.6, 2.15, "x₂", ha="center", fontsize=10)
+
+    # Projection rays
+    ax.plot([1.0, px], [2.5, py], linewidth=1)
+    ax.plot([9.0, px], [2.5, py], linewidth=1)
+
+    # Image planes
+    ax.plot([1.0, 2.4], [2.5, 2.5], linewidth=1)
+    ax.plot([9.0, 7.6], [2.5, 2.5], linewidth=1)
+
+    # Disparity
+    ax.annotate(
+        "",
+        xy=(7.6, 1.35),
+        xytext=(2.4, 1.35),
+        arrowprops=dict(arrowstyle="<->", linewidth=1.2),
+    )
+    ax.text(
+        5.0,
+        1.55,
+        "disparity  d = x₁ − x₂",
+        ha="center",
+        fontsize=10,
+    )
+
+    ax.text(
+        5.0,
+        0.75,
+        "Depth:  Z = (f × B) / d",
+        ha="center",
+        fontsize=11,
+        fontweight="bold",
+    )
+
+    fig.tight_layout()
+    fig.savefig(path, dpi=180, bbox_inches="tight")
+    plt.close(fig)
+
+    return path
+
+
+def generate_epipolar_geometry():
+    path = image_path("07_epipolar_geometry.png")
+
+    fig, ax = plt.subplots(figsize=(10, 4.5))
+
+    ax.set_xlim(0, 10)
+    ax.set_ylim(0, 6)
+    ax.axis("off")
+
+    # Cameras
+    ax.scatter(2.0, 1.3, s=80)
+    ax.scatter(8.0, 1.3, s=80)
+
+    ax.text(2.0, 0.8, "Camera 1", ha="center", fontsize=10)
+    ax.text(8.0, 0.8, "Camera 2", ha="center", fontsize=10)
+
+    # 3D point
+    px, py = 5.0, 4.5
+    ax.scatter(px, py, s=65)
+    ax.text(px, py + 0.3, "3D point P", ha="center", fontsize=10)
+
+    # Rays
+    ax.plot([2.0, px], [1.3, py], linewidth=1.5)
+    ax.plot([8.0, px], [1.3, py], linewidth=1.5)
+
+    # Epipolar line
+    ax.plot(
+        [6.8, 9.7],
+        [0.5, 4.7],
+        linewidth=1.8,
+    )
+
+    # Correct correspondence
+    ax.scatter(8.0, 1.3, s=35)
+    ax.text(
+        8.6,
+        2.0,
+        "candidate x₂",
+        fontsize=9,
+    )
+
+    ax.text(
+        8.7,
+        4.85,
+        "epipolar line",
+        fontsize=10,
+    )
+
+    ax.text(
+        5.0,
+        5.45,
+        "Epipolar geometry",
+        ha="center",
+        fontsize=12,
+        fontweight="bold",
+    )
+
+    fig.tight_layout()
+    fig.savefig(path, dpi=180, bbox_inches="tight")
+    plt.close(fig)
+
+    return path
+
+
+def generate_inverse_disparity_depth():
+    path = image_path("08_inverse_disparity_depth.png")
+
+    f = 1100.0
+    baseline = 0.2
+
+    disparity = [d for d in range(1, 81)]
+    depth = [(f * baseline) / d for d in disparity]
+
+    fig, ax = plt.subplots(figsize=(9, 4.5))
+    ax.plot(disparity, depth)
+
+    ax.set_xlabel("Disparity d (pixels)")
+    ax.set_ylabel("Depth Z (relative unit)")
+    ax.set_title("Figure 5. Inverse Disparity–Depth Relationship")
+    ax.grid(True, alpha=0.25)
+
+    fig.tight_layout()
+    fig.savefig(path, dpi=180, bbox_inches="tight")
+    plt.close(fig)
+
+    return path
+
+
+# Generate conceptual figures.
+generate_stereo_geometry()
+generate_epipolar_geometry()
+generate_inverse_disparity_depth()
+
+
+# ---------------------------------------------------------------------------
+# Cover
+# ---------------------------------------------------------------------------
+
+story.append(Spacer(1, 4.5 * cm))
+
+p("Stereo Vision Depth Estimator", "CoverTitle")
+
+p(
+    "A RANSAC-Based Epipolar Geometry Pipeline for Dense Depth Estimation",
+    "CoverSub",
+)
+
+story.append(Spacer(1, 1.5 * cm))
+
+p("Course: Computer Vision (CSE3010)", "CoverSub")
+p("Prepared by : ARJUN TIWARI", "CoverSub")
+p("Registration No. : 24BAI10141", "CoverSub")
+p("B.Tech CSE (AI/ML), VIT Bhopal University", "CoverSub")
+
+story.append(PageBreak())
+
+
+# ---------------------------------------------------------------------------
 # 1. Introduction
-story.append(Paragraph("1. Introduction", styles["H1"]))
-story.append(Paragraph(
-    "Depth perception from images is a fundamental problem in computer vision with "
-    "applications in robotics, autonomous navigation, and 3D reconstruction. This project "
-    "implements a complete two-view (binocular) stereo vision pipeline that recovers a dense, "
-    "per-pixel metric depth map from a stereo image pair, grounded directly in the projection "
-    "models, epipolar geometry, and RANSAC concepts covered in the Computer Vision (CSE3010) "
-    "syllabus.", styles["Body"]))
-story.append(Spacer(1, 6))
+# ---------------------------------------------------------------------------
 
-# 2. Problem Statement
-story.append(Paragraph("2. Problem Statement", styles["H1"]))
-story.append(Paragraph(
-    "A single 2D image discards depth information inherent to a 3D scene. Stereo vision "
-    "recovers this depth by observing the same scene from two horizontally offset viewpoints: "
-    "a 3D point projects to horizontally shifted pixel locations in the two images, and this "
-    "shift (disparity) is inversely proportional to the point's distance from the camera. "
-    "Recovering this relationship reliably requires (a) finding accurate correspondences between "
-    "the two views, (b) rejecting incorrect matches robustly, and (c) using the recovered "
-    "geometry to rectify and triangulate depth. This project addresses all three sub-problems "
-    "end-to-end.", styles["Body"]))
+p("1. Introduction", "H1Report")
 
-# 3. Functional Requirements
-story.append(Paragraph("3. Functional Requirements", styles["H1"]))
-story.append(bullets([
-    "<b>Module 1 - Calibration & Projection Model:</b> maintain intrinsic camera matrix K, "
-    "extrinsic transform [R|t], and 3x4 projection matrices for both views; undistort input frames.",
-    "<b>Module 2 - Feature Matching & Epipolar Geometry:</b> detect and match SIFT keypoints; "
-    "robustly estimate the Fundamental matrix via a custom RANSAC implementation; derive the "
-    "Essential matrix and recover relative camera pose.",
-    "<b>Module 3 - Disparity & Depth Estimation:</b> stereo-rectify the pair; compute a dense "
-    "disparity map via Semi-Global Block Matching; convert disparity to metric depth.",
-    "Clear input/output structure: two image file paths in, a metric depth map plus diagnostic "
-    "visualizations and a JSON metrics file out.",
-    "A logical, linear workflow: load -> match -> estimate geometry -> rectify -> disparity -> depth -> evaluate.",
-]))
+p(
+    "Depth estimation is the recovery of scene distance from image observations. "
+    "In binocular stereo vision, two horizontally separated cameras observe the same "
+    "scene. A 3D point appears at different image coordinates in the two views; this "
+    "displacement, called disparity, provides the information required for depth recovery."
+)
 
-# 4. Non-functional Requirements
-story.append(Paragraph("4. Non-Functional Requirements", styles["H1"]))
-story.append(bullets([
-    "<b>Performance:</b> full pipeline completes in under 4 seconds on a 1282x1110 stereo pair on CPU.",
-    "<b>Reliability:</b> adaptive-but-floored RANSAC trial scheduling prevents a single unlucky "
-    "minimal sample from silently degrading the geometry estimate.",
-    "<b>Error handling:</b> explicit, typed exceptions (FileNotFoundError, ValueError, RuntimeError) "
-    "with clear messages for missing files, undecodable images, and insufficient matches.",
-    "<b>Logging/monitoring:</b> every stage logs progress, match counts, inlier ratios, and disparity "
-    "coverage via Python's logging module.",
-    "<b>Maintainability:</b> one responsibility per module, each independently unit-tested.",
-    "<b>Resource efficiency:</b> disparity computed once per run at native resolution; no redundant recomputation.",
-]))
+p(
+    "<b>Stereo vision:</b> A technique that estimates scene depth by comparing "
+    "corresponding observations from two viewpoints."
+)
 
-# 5. System Architecture
-story.append(Paragraph("5. System Architecture", styles["H1"]))
-story.append(Paragraph(
-    "The system is organized as three sequential modules feeding an evaluation stage, all "
-    "orchestrated by a single pipeline entry point (main.py). Figure 1 shows the high-level "
-    "architecture.", styles["Body"]))
-add_image(os.path.join(DIAG, "01_system_architecture.png"), caption="Figure 1: System Architecture")
+p(
+    "<b>Disparity:</b> The difference in image position between corresponding points "
+    "in the left and right views."
+)
+
+p(
+    "<b>Depth map:</b> An image whose valid pixels contain estimated distances from the camera."
+)
+
+p(
+    "<b>Epipolar geometry:</b> The geometric relationship between two camera views "
+    "that constrains possible point correspondences."
+)
+
+p(
+    "The pipeline combines calibration, SIFT feature matching, custom RANSAC estimation "
+    "of the Fundamental matrix, pose recovery, stereo rectification, SGBM disparity "
+    "estimation, and metric depth conversion."
+)
+
+p("2. Problem Statement", "H1Report")
+
+p(
+    "A single 2D image does not directly encode the distance of every visible point. "
+    "The system therefore aims to recover dense depth from a stereo image pair while "
+    "handling incorrect matches and geometric errors."
+)
+
+story.append(
+    bullet_list(
+        [
+            "Find reliable correspondences.",
+            "Reject outliers robustly.",
+            "Estimate relative camera geometry.",
+            "Rectify the stereo pair.",
+            "Compute dense disparity.",
+            "Convert disparity to depth and evaluate the result.",
+        ]
+    )
+)
+
 story.append(PageBreak())
 
-# 6. Design Diagrams
-story.append(Paragraph("6. Design Diagrams", styles["H1"]))
 
-story.append(Paragraph("6.1 Process Flow / Workflow Diagram", styles["H2"]))
-add_image(os.path.join(DIAG, "02_workflow.png"), width=10 * cm, caption="Figure 2: Pipeline Workflow")
+# ---------------------------------------------------------------------------
+# 3. Objectives
+# ---------------------------------------------------------------------------
 
-story.append(Paragraph("6.2 Use Case Diagram", styles["H2"]))
-add_image(os.path.join(DIAG, "03_use_case.png"), caption="Figure 3: Use Case Diagram")
+p("3. Objectives", "H1Report")
 
-story.append(Paragraph("6.3 Class / Component Diagram", styles["H2"]))
-add_image(os.path.join(DIAG, "04_class_diagram.png"), caption="Figure 4: Class/Component Diagram")
+story.append(
+    bullet_list(
+        [
+            "Implement a complete two-view stereo pipeline.",
+            "Demonstrate the normalized eight-point algorithm with RANSAC.",
+            "Use SIFT correspondences and epipolar constraints.",
+            "Generate dense disparity using SGBM.",
+            "Recover depth using Z = fB/d.",
+            "Validate results with automated tests and metrics.",
+        ]
+    )
+)
 
-story.append(Paragraph("6.4 Sequence Diagram", styles["H2"]))
-add_image(os.path.join(DIAG, "05_sequence_diagram.png"), caption="Figure 5: Sequence Diagram of main.run_pipeline()")
+
+# ---------------------------------------------------------------------------
+# 4. Functional Requirements
+# ---------------------------------------------------------------------------
+
+p("4. Functional Requirements", "H1Report")
+
+story.append(
+    bullet_list(
+        [
+            "<b>Module 1 — Calibration & Projection:</b> maintain K, [R|t], projection "
+            "matrices, and undistort images.",
+            "<b>Module 2 — Feature Matching & Epipolar Geometry:</b> SIFT matching, "
+            "custom RANSAC, Fundamental/Essential matrices, and relative pose.",
+            "<b>Module 3 — Disparity & Depth:</b> rectification, SGBM disparity, and "
+            "metric depth.",
+            "<b>Input/Output:</b> two image paths in; depth map, diagnostics, and JSON metrics out.",
+            "<b>Workflow:</b> load → match → geometry → rectify → disparity → depth → evaluate.",
+        ]
+    )
+)
+
+
+# ---------------------------------------------------------------------------
+# 5. Non-Functional Requirements
+# ---------------------------------------------------------------------------
+
+p("5. Non-Functional Requirements", "H1Report")
+
+story.append(
+    bullet_list(
+        [
+            "<b>Performance:</b> approximately under four seconds for the stated "
+            "1282×1110 pair on CPU.",
+            "<b>Reliability:</b> floor the RANSAC inlier-ratio estimate before adaptive "
+            "trial calculation.",
+            "<b>Error handling:</b> explicit exceptions for missing/invalid/insufficient inputs.",
+            "<b>Logging:</b> progress, match counts, inlier ratios, and disparity coverage.",
+            "<b>Maintainability:</b> separate modules with independent tests.",
+            "<b>Resource efficiency:</b> avoid redundant disparity computation.",
+        ]
+    )
+)
+
 story.append(PageBreak())
 
-# 7. Design Decisions & Rationale
-story.append(Paragraph("7. Design Decisions & Rationale", styles["H1"]))
-story.append(bullets([
-    "<b>Custom RANSAC over cv2.findFundamentalMat:</b> implementing the normalized 8-point "
-    "algorithm and Sampson-distance inlier scoring by hand demonstrates the algorithmic "
-    "understanding required by the syllabus, rather than treating RANSAC as a black box.",
-    "<b>SIFT over ORB:</b> SIFT gives more stable, higher-quality correspondences on the "
-    "textured Middlebury test scene, which matters more for geometry accuracy than raw speed here.",
-    "<b>SGBM over simple block matching:</b> Semi-Global Block Matching produces materially "
-    "smoother, more complete disparity maps at a modest computational cost.",
-    "<b>Modular package layout:</b> calibration, epipolar geometry, and depth estimation are "
-    "separated into independent modules so each can be unit-tested and reasoned about in isolation.",
-    "<b>Simulated intrinsics:</b> since no physical stereo rig/checkerboard was available for this "
-    "coursework project, plausible fixed intrinsics were used; the code path supports swapping in "
-    "real calibration output (via cv2.calibrateCamera) without any interface changes.",
-]))
 
-# 8. Implementation Details
-story.append(Paragraph("8. Implementation Details", styles["H1"]))
-story.append(Paragraph(
-    "The pipeline is implemented in Python 3.12 using OpenCV for image processing and "
-    "geometric primitives, and NumPy for the custom RANSAC / 8-point algorithm math. The "
-    "Fundamental matrix is estimated by a from-scratch loop: (1) sample 8 random correspondences, "
-    "(2) solve the normalized 8-point linear system via SVD, (3) enforce the rank-2 constraint "
-    "by zeroing the smallest singular value, (4) score all correspondences by Sampson distance, "
-    "(5) track the best inlier set, and (6) adaptively shrink the number of remaining trials using "
-    "the standard RANSAC formula N = log(1-p) / log(1-w^s). The Essential matrix is derived as "
-    "E = K^T F K, and cv2.recoverPose extracts the relative rotation and translation. These are fed "
-    "to cv2.stereoRectify to produce a rectified pair on which cv2.StereoSGBM_create computes "
-    "disparity, which is converted to metric depth via Z = (f * B) / d.", styles["Body"]))
+# ---------------------------------------------------------------------------
+# 6. System Architecture
+# ---------------------------------------------------------------------------
 
-story.append(Paragraph("8.1 Repository Structure", styles["H2"]))
-story.append(Paragraph(
-    "modules/config.py, modules/calibration.py, modules/epipolar.py, modules/depth.py, "
-    "modules/evaluate.py, modules/visualize.py, modules/utils.py, main.py, tests/test_pipeline.py "
-    "(8 source modules + 1 test module = 9 meaningful files, exceeding the minimum requirement).",
-    styles["Body"]))
+p("6. System Architecture", "H1Report")
 
-# 9. Dataset Description (ML/computation-heavy section)
-story.append(Paragraph("9. Dataset Description", styles["H1"]))
-story.append(Paragraph(
-    "The pipeline was validated on the Middlebury 'Aloe' stereo pair (1282x1110, distributed "
-    "with OpenCV's official sample data), a standard benchmark image pair for stereo matching "
-    "research featuring a textured potted plant against a patterned background at multiple depths "
-    "- ideal for visually validating disparity/depth separation. The pipeline accepts any "
-    "horizontally-offset stereo pair as input via the --left/--right CLI arguments.", styles["Body"]))
+architecture = image_path("01_system_architecture.png")
 
-story.append(Paragraph("9.1 Model / Algorithm Selection Rationale", styles["H2"]))
-story.append(Paragraph(
-    "RANSAC was chosen over least-squares fitting for the Fundamental matrix because feature "
-    "matching inevitably produces outlier correspondences (repetitive texture, occlusion "
-    "boundaries); a single incorrect match can arbitrarily corrupt a least-squares fit, while "
-    "RANSAC's inlier-consensus scoring is robust to a majority-inlier match set. SGBM was chosen "
-    "over simple block matching for its explicit smoothness penalty terms (P1, P2), which "
-    "produce visibly cleaner disparity maps on textured scenes like the Aloe pair.", styles["Body"]))
+add_image(
+    architecture,
+    width=17 * cm,
+    height=6.0 * cm,
+    caption="Figure 2. System Architecture",
+)
 
-# 10. Screenshots / Results
+p(
+    "<b>1. Stereo Image Input:</b> The system takes a pair of horizontally offset "
+    "stereo images as the primary input for depth estimation."
+)
+
+p(
+    "<b>2. Calibration & Projection:</b> Camera parameters and projection models are "
+    "used to prepare the images and establish the geometric relationship between the views."
+)
+
+p(
+    "<b>3. Feature Matching & RANSAC Geometry:</b> SIFT features are detected and matched "
+    "between the images, while RANSAC is used to estimate reliable epipolar geometry and "
+    "reject incorrect matches."
+)
+
+p(
+    "<b>4. Rectification & Disparity Estimation:</b> The stereo images are rectified so "
+    "corresponding points align along the same scanlines, after which SGBM is used to "
+    "generate a dense disparity map."
+)
+
+p(
+    "<b>5. Depth & Evaluation:</b> The disparity map is converted into metric depth, and "
+    "the resulting depth map is evaluated using quantitative metrics and visual outputs."
+)
+
 story.append(PageBreak())
-story.append(Paragraph("10. Screenshots / Results", styles["H1"]))
-add_image(os.path.join(OUT, "02_feature_matches.png"), caption="Figure 6: SIFT feature matches before RANSAC filtering")
-add_image(os.path.join(OUT, "03_ransac_inlier_matches.png"), caption="Figure 7: RANSAC inlier matches (outliers rejected)")
-story.append(PageBreak())
-add_image(os.path.join(OUT, "04_epipolar_lines.png"), caption="Figure 8: Epipolar line overlay on the right image")
-add_image(os.path.join(OUT, "05_rectified_pair.png"), caption="Figure 9: Stereo-rectified pair")
-story.append(PageBreak())
-add_image(os.path.join(OUT, "06_disparity_map.png"), width=12 * cm, caption="Figure 10: Disparity map (SGBM)")
-add_image(os.path.join(OUT, "07_depth_map.png"), width=12 * cm, caption="Figure 11: Metric depth map")
 
-# Metrics table
-story.append(Paragraph("10.1 Quantitative Results", styles["H2"]))
-data = [
-    ["Metric", "Value"],
-    ["Total feature matches (post ratio-test)", str(metrics["num_matches"])],
-    ["RANSAC inliers", str(metrics["num_ransac_inliers"])],
-    ["RANSAC inlier ratio", f"{metrics['quality_checks']['ransac_inlier_ratio_pct']}%"],
-    ["Fundamental matrix rank", str(metrics["quality_checks"]["fundamental_matrix_rank"])],
-    ["Mean epipolar constraint residual", f"{metrics['epipolar_constraint_check']['mean_abs_residual']:.4f}"],
-    ["Disparity valid coverage", f"{metrics['quality_checks']['disparity_valid_coverage_pct']}%"],
-    ["Depth valid pixels", f"{metrics['quality_checks']['depth_valid_pixels_pct']}%"],
-    ["Mean estimated depth", f"{metrics['depth_statistics']['mean_depth_m']} m"],
-    ["Pipeline runtime", f"{metrics['runtime_sec']} s"],
+
+# ---------------------------------------------------------------------------
+# 7. Process Workflow
+# ---------------------------------------------------------------------------
+
+p("7. Process Workflow", "H1Report")
+
+workflow = image_path("02_workflow.png")
+
+add_image(
+    workflow,
+    width=10.5 * cm,
+    height=16.0 * cm,
+    caption="Figure 1. End-to-End Stereo Depth Workflow",
+)
+
+story.append(PageBreak())
+
+
+# ---------------------------------------------------------------------------
+# 8. Core Concepts and Definitions
+# ---------------------------------------------------------------------------
+
+p("8. Core Concepts and Definitions", "H1Report")
+
+concepts = [
+    (
+        "Camera intrinsic matrix (K)",
+        "Contains internal camera parameters such as focal lengths and principal point.",
+    ),
+    (
+        "Extrinsic parameters",
+        "Describe camera rotation and translation relative to a reference frame.",
+    ),
+    (
+        "Projection matrix",
+        "Maps a 3D point in homogeneous coordinates to image coordinates.",
+    ),
+    (
+        "SIFT",
+        "A scale-invariant local feature detector and descriptor used to establish image correspondences.",
+    ),
+    (
+        "Fundamental matrix (F)",
+        "A 3×3 rank-2 matrix expressing the epipolar constraint between two camera views.",
+    ),
+    (
+        "Essential matrix (E)",
+        "Encodes relative rotation and translation for calibrated views; here E = KᵀFK.",
+    ),
+    (
+        "RANSAC",
+        "A robust model estimation method that finds a model supported by a consistent subset of observations.",
+    ),
+    (
+        "Sampson distance",
+        "A first-order geometric error for measuring correspondence consistency with an epipolar model.",
+    ),
+    (
+        "Stereo rectification",
+        "Transforms stereo images so corresponding points lie on corresponding horizontal scanlines.",
+    ),
+    (
+        "SGBM",
+        "Semi-Global Block Matching, a stereo method that combines matching evidence with smoothness constraints.",
+    ),
+    (
+        "Triangulation",
+        "Recovers a 3D point from corresponding image observations and camera geometry.",
+    ),
 ]
-table = Table(data, colWidths=[9 * cm, 6 * cm])
-table.setStyle(TableStyle([
-    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E6F1FB")),
-    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-    ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#B4B2A9")),
-    ("FONTSIZE", (0, 0), (-1, -1), 9.5),
-    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F1EFE8")]),
-    ("TOPPADDING", (0, 0), (-1, -1), 5),
-    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-]))
+
+for title, description in concepts:
+    p(f"<b>{title}:</b> {description}")
+
+story.append(PageBreak())
+
+
+# ---------------------------------------------------------------------------
+# 9. Stereo Geometry Visual Aid
+# ---------------------------------------------------------------------------
+
+p("9. Stereo Geometry Visual Aid", "H1Report")
+
+add_image(
+    image_path("06_stereo_geometry.png"),
+    width=17 * cm,
+    height=7.0 * cm,
+    caption="Figure 3. Stereo Disparity Concept",
+)
+
+p(
+    "In a rectified stereo setup, the same 3D point appears at different horizontal "
+    "positions in the left and right images."
+)
+
+p(
+    "These corresponding image positions are represented by x1 and x2, respectively."
+)
+
+p(
+    "The difference between these positions is called disparity, which is given by "
+    "d = x1 − x2."
+)
+
+p(
+    "Disparity provides an important cue for determining how far an object is from the cameras."
+)
+
+p(
+    "A larger disparity tells that the object is closer, whereas a smaller disparity "
+    "indicates greater depth."
+)
+
+p(
+    "The system converts disparity into metric depth using the formula Z = (f × B) / d, "
+    "where f is the focal length and B is the camera baseline."
+)
+
+p(
+    "<b>For a rectified stereo setup disparity and depth always follow an inverse "
+    "relationship: larger disparity corresponds to smaller depth.</b>"
+)
+
+p(
+    "In which the implementation uses Z = (f × B) / d."
+)
+
+story.append(PageBreak())
+
+
+# ---------------------------------------------------------------------------
+# 10. Epipolar Geometry Visual Aid
+# ---------------------------------------------------------------------------
+
+p("10. Epipolar Geometry Visual Aid", "H1Report")
+
+add_image(
+    image_path("07_epipolar_geometry.png"),
+    width=17 * cm,
+    height=7.0 * cm,
+    caption="Figure 4. Epipolar Geometry",
+)
+
+p(
+    "Epipolar geometry describes the geometric relationship between two camera views "
+    "observing the same 3D point."
+)
+
+p(
+    "When a point is observed in one image, its corresponding point in the second image "
+    "is constrained to lie along a specific epipolar line."
+)
+
+p(
+    "This constraint significantly reduces the search area for finding corresponding points "
+    "between the two images."
+)
+
+p(
+    "A point in one image induces an epipolar line in the other image. Correct correspondences "
+    "should satisfy the associated geometric constraint."
+)
+
+p(
+    "In the diagram, the 3D point is projected onto both cameras, establishing the corresponding "
+    "image observations."
+)
+
+p(
+    "RANSAC helps identify reliable correspondences and reject incorrect matches before "
+    "estimating the Fundamental matrix."
+)
+
+p(
+    "The resulting epipolar geometry is then used to support stereo rectification and "
+    "accurate disparity-based depth estimation."
+)
+
+story.append(PageBreak())
+
+
+# ---------------------------------------------------------------------------
+# 11. Algorithm Design
+# ---------------------------------------------------------------------------
+
+p("11. Algorithm Design", "H1Report")
+
+p("11.1 Feature Detection and Matching", "H2Report")
+
+story.append(
+    bullet_list(
+        [
+            "Detect SIFT keypoints.",
+            "Compute descriptors.",
+            "Match descriptors between views.",
+            "Apply the ratio test.",
+            "Send surviving point pairs to geometric estimation.",
+        ]
+    )
+)
+
+p("11.2 Fundamental Matrix with RANSAC", "H2Report")
+
+story.append(
+    bullet_list(
+        [
+            "Sample eight correspondences.",
+            "Normalize coordinates.",
+            "Solve the linear system with SVD.",
+            "Enforce rank-2 by zeroing the smallest singular value.",
+            "Score correspondences using Sampson distance.",
+            "Keep the strongest inlier set.",
+            "Adapt the remaining trial count using the RANSAC formula.",
+        ]
+    )
+)
+
+p(
+    "<b>N = log(1 − p) / log(1 − wˢ)</b>",
+)
+
+p("11.3 Pose Recovery and Rectification", "H2Report")
+
+p(
+    "The Essential matrix is obtained from E = KᵀFK. Relative rotation and translation "
+    "are recovered, then the stereo pair is rectified so matching becomes primarily a "
+    "row-wise search."
+)
+
+p("11.4 Dense Disparity and Depth", "H2Report")
+
+p(
+    "SGBM estimates dense disparity over the rectified images. Valid disparity is converted "
+    "to depth using:"
+)
+
+p("<b>Z = (f × B) / d</b>")
+
+add_image(
+    image_path("08_inverse_disparity_depth.png"),
+    width=15.5 * cm,
+    height=7.5 * cm,
+    caption="Figure 5. Inverse Disparity–Depth Relationship",
+)
+
+story.append(PageBreak())
+
+
+# ---------------------------------------------------------------------------
+# 12. Component Design
+# ---------------------------------------------------------------------------
+
+p("12. Component Design", "H1Report")
+
+component_data = [
+    ["Component", "Responsibility", "Output"],
+    ["config.py", "Parameters and camera settings", "Configuration"],
+    ["calibration.py", "Undistortion and camera geometry", "Calibration data"],
+    ["epipolar.py", "SIFT, matching, RANSAC, F/E, pose", "Geometry"],
+    ["depth.py", "Rectification, SGBM, depth conversion", "Disparity + depth"],
+    ["evaluate.py", "Validation and metrics", "JSON metrics"],
+    ["visualize.py", "Plots and overlays", "Visual diagnostics"],
+    ["utils.py", "Shared utilities and I/O", "Helpers"],
+    ["main.py", "Pipeline orchestration", "End-to-end run"],
+]
+
+table = Table(
+    component_data,
+    colWidths=[3.2 * cm, 8.0 * cm, 4.0 * cm],
+)
+
+table.setStyle(
+    TableStyle(
+        [
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EEEEEE")),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 8.2),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ]
+    )
+)
+
 story.append(table)
 
-# 11. Testing Approach
-story.append(Paragraph("11. Testing Approach", styles["H1"]))
-story.append(Paragraph(
-    "9 automated pytest tests validate correctness at every pipeline stage: calibration matrix "
-    "shapes, feature-matching output validity, the Fundamental matrix's mathematically-required "
-    "rank-2 property, a sanity floor on RANSAC inlier ratio for a well-textured scene, the "
-    "epipolar constraint residual (x2^T F x1 approx 0), disparity map coverage, the inverse "
-    "disparity-depth relationship, correct NaN handling at zero disparity, and explicit error "
-    "handling for missing input files. All 9 tests pass (see tests/test_pipeline.py).", styles["Body"]))
+p("13. Design Decisions and Rationale", "H1Report")
 
-# 12. Challenges Faced
-story.append(Paragraph("12. Challenges Faced", styles["H1"]))
-story.append(bullets([
-    "The initial adaptive RANSAC trial-count formula could collapse to a single iteration when "
-    "an early minimal sample produced a very low (but non-zero) inlier count, due to floating-point "
-    "underflow in w^8. Fixed by flooring the inlier-ratio estimate before computing the required "
-    "trial count, verified by a dedicated unit test on the inlier ratio.",
-    "Balancing SGBM parameters (block size, uniqueness ratio, speckle filtering) to maximize "
-    "valid disparity coverage without introducing noisy mismatches in low-texture regions.",
-    "Ensuring NaN/invalid pixels from unmatched disparity regions were handled consistently "
-    "through to the final depth map and visualization colormap without runtime warnings.",
-]))
+story.append(
+    bullet_list(
+        [
+            "Custom RANSAC exposes the normalized eight-point and Sampson-distance steps.",
+            "SIFT was selected for stable correspondences on the textured benchmark scene.",
+            "SGBM was selected for smoother and more complete disparity than simple block matching.",
+            "The modular layout supports independent testing and maintenance.",
+            "Simulated intrinsics are used when physical checkerboard calibration is unavailable.",
+        ]
+    )
+)
 
-# 13. Learnings & Key Takeaways
-story.append(Paragraph("13. Learnings & Key Takeaways", styles["H1"]))
-story.append(bullets([
-    "Implementing RANSAC from scratch clarified why the rank-2 constraint on the Fundamental "
-    "matrix and Sampson distance (rather than raw algebraic error) matter for real robustness.",
-    "Small numerical-stability bugs (floating point underflow in adaptive trial-count formulas) "
-    "can silently produce a badly under-fit model that still 'runs successfully' - reinforcing "
-    "the value of explicit unit tests over eyeballing output images alone.",
-    "Stereo rectification quality has an outsized effect on downstream disparity quality - "
-    "epipolar geometry errors compound through the whole pipeline.",
-]))
+p("14. Dataset Description", "H1Report")
 
-# 14. Future Enhancements
-story.append(Paragraph("14. Future Enhancements", styles["H1"]))
-story.append(bullets([
-    "Replace simulated intrinsics with a real checkerboard-based camera calibration routine.",
-    "Add an interactive Streamlit front-end for live parameter tuning.",
-    "Extend to multi-view Structure-from-Motion with sparse 3D point-cloud visualization.",
-    "GPU-accelerated SGBM (or a learned stereo-matching model) for real-time video depth.",
-]))
+p(
+    "The reference implementation was validated on the Middlebury 'Aloe' stereo pair at "
+    "1282×1110 resolution. It is a textured potted-plant scene suitable for demonstrating "
+    "disparity and depth separation. The pipeline accepts other horizontally offset stereo "
+    "pairs through left/right image inputs."
+)
 
-# 15. References
-story.append(Paragraph("15. References", styles["H1"]))
-story.append(bullets([
-    "R. Hartley and A. Zisserman, <i>Multiple View Geometry in Computer Vision</i>, Cambridge University Press.",
-    "M. A. Fischler and R. C. Bolles, 'Random Sample Consensus: A Paradigm for Model Fitting with "
-    "Applications to Image Analysis and Automated Cartography,' <i>Communications of the ACM</i>, 1981.",
-    "D. Scharstein and R. Szeliski, Middlebury Stereo Vision Datasets.",
-    "OpenCV documentation - Camera Calibration and 3D Reconstruction module.",
-]))
+story.append(PageBreak())
+
+
+# ---------------------------------------------------------------------------
+# 15. Visual Results
+# ---------------------------------------------------------------------------
+
+p("15. Visual Results", "H1Report")
+
+# Selected reported-results chart
+fig, ax = plt.subplots(figsize=(8.5, 4.2))
+
+labels = [
+    "Feature\nmatches",
+    "RANSAC\ninliers",
+    "Valid\ncoverage (%)",
+]
+values = [1327, 999, 79.2]
+
+bars = ax.bar(labels, values)
+
+ax.set_ylabel("Value")
+ax.set_title("Figure 6. Selected Reported Results")
+
+for bar, value in zip(bars, values):
+    ax.text(
+        bar.get_x() + bar.get_width() / 2,
+        bar.get_height() + max(values) * 0.02,
+        str(value),
+        ha="center",
+        va="bottom",
+        fontsize=9,
+    )
+
+fig.tight_layout()
+
+selected_chart = image_path("09_selected_reported_results.png")
+fig.savefig(selected_chart, dpi=180, bbox_inches="tight")
+plt.close(fig)
+
+add_image(
+    selected_chart,
+    width=15.5 * cm,
+    height=7.0 * cm,
+)
+
+add_image(
+    architecture,
+    width=17 * cm,
+    height=5.2 * cm,
+    caption="Stereo Vision Depth Estimation Pipeline",
+)
+
+story.append(PageBreak())
+
+
+# ---------------------------------------------------------------------------
+# Visual results — feature matching
+# ---------------------------------------------------------------------------
+
+add_image(
+    output_path("02_feature_matches.png"),
+    width=15.5 * cm,
+    height=7.0 * cm,
+    caption="SIFT feature matches before RANSAC filtering",
+)
+
+add_image(
+    output_path("03_ransac_inlier_matches.png"),
+    width=15.5 * cm,
+    height=7.0 * cm,
+    caption="RANSAC inlier matches (outliers rejected)",
+)
+
+story.append(PageBreak())
+
+
+# ---------------------------------------------------------------------------
+# Visual results — epipolar and rectified
+# ---------------------------------------------------------------------------
+
+add_image(
+    output_path("04_epipolar_lines.png"),
+    width=15.5 * cm,
+    height=7.0 * cm,
+    caption="Epipolar line overlay on the right image",
+)
+
+add_image(
+    output_path("05_rectified_pair.png"),
+    width=15.5 * cm,
+    height=6.2 * cm,
+    caption="Stereo-rectified pair",
+)
+
+story.append(PageBreak())
+
+
+# ---------------------------------------------------------------------------
+# Visual results — disparity and depth
+# ---------------------------------------------------------------------------
+
+add_image(
+    output_path("06_disparity_map.png"),
+    width=15.5 * cm,
+    height=7.0 * cm,
+    caption="Embedded visual output from the reference report",
+)
+
+add_image(
+    output_path("07_depth_map.png"),
+    width=15.5 * cm,
+    height=7.0 * cm,
+    caption="Embedded visual output from the reference report",
+)
+
+story.append(PageBreak())
+
+
+# ---------------------------------------------------------------------------
+# 16. Quantitative Results
+# ---------------------------------------------------------------------------
+
+p("16. Quantitative Results", "H1Report")
+
+# These values reproduce the submitted report.
+# They are deliberately kept separate from the current pipeline's JSON output
+# because the submitted report contains these exact reported measurements.
+
+reported_metrics = [
+    ["Metric", "Reported value"],
+    ["Feature matches after ratio test", "1327"],
+    ["RANSAC inliers", "999"],
+    ["Reported RANSAC inlier ratio", "99.8%"],
+    ["Fundamental matrix rank", "2"],
+    ["Mean epipolar residual", "0.1352"],
+    ["Disparity valid coverage", "79.2%"],
+    ["Depth valid pixels", "79.2%"],
+    ["Mean estimated depth", "3.466 m"],
+    ["Pipeline runtime", "3.64 s"],
+]
+
+metrics_table = Table(
+    reported_metrics,
+    colWidths=[10.5 * cm, 5.0 * cm],
+)
+
+metrics_table.setStyle(
+    TableStyle(
+        [
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#EEEEEE")),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ]
+    )
+)
+
+story.append(metrics_table)
+
+p(
+    "The values above reproduce the measurements stated in the supplied reference report."
+)
+
+
+# ---------------------------------------------------------------------------
+# 17. Testing Approach
+# ---------------------------------------------------------------------------
+
+p("17. Testing Approach", "H1Report")
+
+p(
+    "The reference report describes nine automated pytest tests covering calibration shapes, "
+    "matching validity, Fundamental-matrix rank, RANSAC inlier ratio, epipolar residual, "
+    "disparity coverage, disparity-depth behavior, NaN handling, and missing-file errors. "
+    "It reports that all nine tests pass."
+)
+
+
+# ---------------------------------------------------------------------------
+# 18. Challenges Faced
+# ---------------------------------------------------------------------------
+
+p("18. Challenges Faced", "H1Report")
+
+story.append(
+    bullet_list(
+        [
+            "Adaptive RANSAC trial scheduling could collapse after an unlucky early sample; "
+            "a floor was added to the inlier-ratio estimate.",
+            "SGBM parameters require balancing coverage and noisy matches.",
+            "Invalid disparity regions must be handled consistently through the depth map "
+            "and visualization.",
+        ]
+    )
+)
+
+
+# ---------------------------------------------------------------------------
+# 19. Learnings and Key Takeaways
+# ---------------------------------------------------------------------------
+
+p("19. Learnings and Key Takeaways", "H1Report")
+
+story.append(
+    bullet_list(
+        [
+            "Rank-2 enforcement and Sampson distance improve the robustness of "
+            "Fundamental-matrix estimation.",
+            "Numerical-stability bugs can silently degrade a model, making automated tests important.",
+            "Rectification quality strongly affects downstream disparity quality.",
+            "Modular design makes the pipeline easier to understand, test, and extend.",
+        ]
+    )
+)
+
+story.append(PageBreak())
+
+
+# ---------------------------------------------------------------------------
+# 20. Future Enhancements
+# ---------------------------------------------------------------------------
+
+p("20. Future Enhancements", "H1Report")
+
+story.append(
+    bullet_list(
+        [
+            "Use real checkerboard-based camera calibration.",
+            "Add a Streamlit interface for parameter tuning.",
+            "Extend toward multi-view Structure-from-Motion and sparse 3D visualization.",
+            "Investigate GPU acceleration or learned stereo matching for real-time video depth.",
+        ]
+    )
+)
+
+
+# ---------------------------------------------------------------------------
+# 21. References
+# ---------------------------------------------------------------------------
+
+p("21. References", "H1Report")
+
+story.append(
+    bullet_list(
+        [
+            "R. Hartley and A. Zisserman, <i>Multiple View Geometry in Computer Vision</i>, Cambridge University Press.",
+            "M. A. Fischler and R. C. Bolles, “Random Sample Consensus: A Paradigm for Model Fitting "
+            "with Applications to Image Analysis and Automated Cartography,” <i>Communications of the ACM</i>, 1981.",
+            "D. Scharstein and R. Szeliski, Middlebury Stereo Vision Datasets.",
+            "OpenCV documentation — Camera Calibration and 3D Reconstruction module.",
+        ]
+    )
+)
+
+
+# ---------------------------------------------------------------------------
+# Footer
+# ---------------------------------------------------------------------------
+
+def add_footer(canvas, doc):
+    canvas.saveState()
+
+    canvas.setFont("Helvetica", 7)
+
+    canvas.drawCentredString(
+        A4[0] / 2,
+        0.7 * cm,
+        "Stereo Vision Depth Estimator — Project Report",
+    )
+
+    canvas.restoreState()
+
+
+# ---------------------------------------------------------------------------
+# Build PDF
+# ---------------------------------------------------------------------------
 
 doc = SimpleDocTemplate(
-    REPORT_PATH, pagesize=A4,
-    topMargin=1.5 * cm, bottomMargin=1.5 * cm, leftMargin=2 * cm, rightMargin=2 * cm
+    REPORT_PATH,
+    pagesize=A4,
+    topMargin=1.5 * cm,
+    bottomMargin=1.5 * cm,
+    leftMargin=1.8 * cm,
+    rightMargin=1.8 * cm,
 )
-doc.build(story)
-print("Report written to", REPORT_PATH)
+
+doc.build(
+    story,
+    onFirstPage=add_footer,
+    onLaterPages=add_footer,
+)
+
+print("Report written to:")
+print(REPORT_PATH)
